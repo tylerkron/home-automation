@@ -1,0 +1,47 @@
+alias: Front Outdoor Lights Off
+triggers:
+  - trigger: sun
+    event: sunrise
+actions:
+  - repeat:
+      sequence:
+        - action: light.turn_off
+          continue_on_error: true
+          target:
+            entity_id:
+              - light.front_light_1
+              - light.front_light_2
+              - light.front_light_3
+              - light.front_light_4
+        - delay: "00:00:15"
+      until:
+        - condition: template
+          value_template: |
+            {{
+              (
+                is_state('light.front_light_1', 'off') and
+                is_state('light.front_light_2', 'off') and
+                is_state('light.front_light_3', 'off') and
+                is_state('light.front_light_4', 'off')
+              )
+              or repeat.index >= 10
+            }}
+  - if:
+      - condition: template
+        value_template: |
+          {{
+            not (
+              is_state('light.front_light_1', 'off') and
+              is_state('light.front_light_2', 'off') and
+              is_state('light.front_light_3', 'off') and
+              is_state('light.front_light_4', 'off')
+            )
+          }}
+    then:
+      - action: persistent_notification.create
+        data:
+          title: Outdoor light automation warning
+          message: >-
+            One or more front outdoor lights still appear to be on after 10
+            retries.
+mode: queued

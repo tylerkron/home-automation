@@ -1,0 +1,18 @@
+alias: Front Outdoor Lights On
+description: ""
+triggers:
+  - trigger: sun
+    event: sunset
+    offset: 0
+conditions: []
+actions:
+  - action: light.turn_on
+    metadata: {}
+    target:
+      entity_id:
+        - light.front_light_1
+        - light.front_light_2
+        - light.front_light_3
+        - light.front_light_4
+    data: {}
+mode: single
