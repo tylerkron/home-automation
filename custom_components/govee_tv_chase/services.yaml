@@ -1,0 +1,18 @@
+celebrate:
+  name: Run TV backlight chase
+  description: Chase team colors around the Govee TV backlight while TV sync is active, then restore its camera mode.
+  fields:
+    team:
+      required: true
+      selector:
+        select:
+          options:
+            - broncos
+            - nuggets
+    seconds:
+      required: true
+      selector:
+        number:
+          min: 2
+          max: 30
+          unit_of_measurement: s

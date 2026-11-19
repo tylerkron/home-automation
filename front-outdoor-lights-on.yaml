@@ -1,18 +1,98 @@
 alias: Front Outdoor Lights On
-description: ""
+description: Turn on the four Govee front bulbs at sunset, after Home Assistant starts, when a bulb reconnects,
+  or when manual override is released. Prefer local control; use the existing Govee cloud connection if
+  any local bulb is unavailable. Only runs while the sun is below_horizon.
 triggers:
-  - trigger: sun
-    event: sunset
-    offset: 0
-conditions: []
+- trigger: state
+  entity_id: sun.sun
+  to: below_horizon
+- trigger: homeassistant
+  event: start
+- trigger: state
+  entity_id:
+  - light.h6006
+  - light.h6006_2
+  - light.h6006_3
+  - light.h6006_4
+  - light.front_1
+  - light.front_2
+  - light.front_3
+  - light.front_4
+  from: unavailable
+- trigger: state
+  entity_id:
+  - light.h6006
+  - light.h6006_2
+  - light.h6006_3
+  - light.h6006_4
+  - light.front_1
+  - light.front_2
+  - light.front_3
+  - light.front_4
+  from: unknown
+- trigger: state
+  entity_id: input_boolean.front_outdoor_lights_manual_override
+  to: 'off'
+conditions:
+- condition: state
+  entity_id: sun.sun
+  state: below_horizon
+- condition: state
+  entity_id: input_boolean.front_outdoor_lights_manual_override
+  state: 'off'
 actions:
-  - action: light.turn_on
-    metadata: {}
-    target:
-      entity_id:
-        - light.front_light_1
-        - light.front_light_2
-        - light.front_light_3
-        - light.front_light_4
-    data: {}
-mode: single
+- variables:
+    front_lights: '{{ [''light.h6006'', ''light.h6006_2'', ''light.h6006_3'', ''light.h6006_4''] if is_state(''light.h6006'',
+      [''on'', ''off'']) and is_state(''light.h6006_2'', [''on'', ''off'']) and is_state(''light.h6006_3'',
+      [''on'', ''off'']) and is_state(''light.h6006_4'', [''on'', ''off'']) else [''light.front_1'', ''light.front_2'',
+      ''light.front_3'', ''light.front_4''] }}'
+- condition: state
+  entity_id: sun.sun
+  state: below_horizon
+- condition: state
+  entity_id: input_boolean.front_outdoor_lights_manual_override
+  state: 'off'
+- repeat:
+    sequence:
+    - condition: state
+      entity_id: sun.sun
+      state: below_horizon
+    - condition: state
+      entity_id: input_boolean.front_outdoor_lights_manual_override
+      state: 'off'
+    - action: light.turn_on
+      continue_on_error: true
+      target:
+        entity_id: '{{ front_lights }}'
+    - wait_template: '{{ expand(front_lights) | selectattr(''state'', ''eq'', ''on'') | list | count ==
+        front_lights | count }}'
+      timeout: 00:00:15
+      continue_on_timeout: true
+    until:
+    - condition: template
+      value_template: '{{ expand(front_lights) | selectattr(''state'', ''eq'', ''on'') | list | count
+        == front_lights | count or repeat.index >= 10 or not is_state(''input_boolean.front_outdoor_lights_manual_override'',
+        ''off'') or not is_state(''sun.sun'', ''below_horizon'') }}'
+- condition: state
+  entity_id: sun.sun
+  state: below_horizon
+- condition: state
+  entity_id: input_boolean.front_outdoor_lights_manual_override
+  state: 'off'
+- if:
+  - condition: template
+    value_template: '{{ expand(front_lights) | selectattr(''state'', ''eq'', ''on'') | list | count !=
+      front_lights | count }}'
+  then:
+  - action: persistent_notification.create
+    data:
+      notification_id: front_outdoor_lights_warning
+      title: Front outdoor lights need attention
+      message: 'Could not confirm all four front Govee bulbs on after 10 attempts. Reported states (unavailable
+        or unknown means the state cannot be confirmed): {% for entity in front_lights %}{{ entity }}:
+        {{ states(entity) }}{% if not loop.last %}; {% endif %}{% endfor %}'
+  else:
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: front_outdoor_lights_warning
+mode: restart

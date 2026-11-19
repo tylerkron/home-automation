@@ -1,0 +1,15 @@
+# Home Assistant package: /config/packages/tv_backlight_celebration.yaml
+# Install the govee_tv_chase custom component alongside this package.
+govee_tv_chase: {}
+
+script:
+  tv_backlight_team_chase:
+    alias: TV Backlight Team Chase
+    description: Run a team-color chase while the backlight is in TV sync.
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - action: govee_tv_chase.celebrate
+        data:
+          team: "{{ team }}"
+          seconds: "{{ seconds }}"
