@@ -1,0 +1,126 @@
+# Home Assistant package: /config/packages/nuggets_living_room.yaml
+# Team Tracker is already installed for the Broncos package.
+sensor:
+  - platform: teamtracker
+    league_id: NBA
+    team_id: DEN
+    name: Denver Nuggets
+
+input_boolean:
+  nuggets_living_room_mode:
+    name: Nuggets Living Room Wins
+    icon: mdi:basketball
+
+# Remember the last celebrated game across restarts and duplicate final updates.
+input_text:
+  nuggets_last_celebrated_game:
+    name: Nuggets Last Celebrated Game
+    max: 255
+
+script:
+  nuggets_living_room_celebrate:
+    alias: Nuggets Living Room Victory Celebration
+    description: Thirty seconds of Nuggets blue and gold, then restore both lights.
+    mode: single
+    sequence:
+      # Avoid interrupting an active Broncos game using these same lamps.
+      - condition: template
+        value_template: "{{ not is_state('input_boolean.broncos_living_room_active', 'on') }}"
+      - condition: template
+        value_template: >-
+          {{ states('light.livingroom_1') in ['on', 'off'] and
+             states('light.livingroom_2') in ['on', 'off'] }}
+      - action: scene.create
+        data:
+          scene_id: nuggets_living_room_before_victory
+          snapshot_entities: [light.livingroom_1, light.livingroom_2]
+      - action: script.turn_on
+        continue_on_error: true
+        target:
+          entity_id: script.tv_backlight_team_chase
+        data:
+          variables:
+            team: nuggets
+            seconds: 30
+      - repeat:
+          count: 6
+          sequence:
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: light.livingroom_1
+              data:
+                rgb_color: [254, 197, 36]
+                brightness_pct: 80
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: light.livingroom_2
+              data:
+                rgb_color: [14, 34, 64]
+                brightness_pct: 80
+            - delay:
+                milliseconds: 2500
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: light.livingroom_1
+              data:
+                rgb_color: [14, 34, 64]
+                brightness_pct: 80
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: light.livingroom_2
+              data:
+                rgb_color: [254, 197, 36]
+                brightness_pct: 80
+            - delay:
+                milliseconds: 2500
+      - action: scene.turn_on
+        target:
+          entity_id: scene.nuggets_living_room_before_victory
+
+automation:
+  - id: nuggets_living_room_win
+    alias: Nuggets Living Room Win Celebration
+    description: >-
+      Celebrate a Nuggets win once when a live game becomes final. No scoring or
+      tipoff effects. Ignore losses, ties, and reconnects to an already-finished game.
+      Skip when Broncos game lighting is active on the same lamps.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.denver_nuggets
+        from: IN
+        to: POST
+    variables:
+      game_key: >-
+        {{ 'NBA-DEN:' ~ (trigger.to_state.attributes.get('event_id') or
+                         trigger.to_state.attributes.get('date') or '') }}
+    conditions:
+      - condition: state
+        entity_id: input_boolean.nuggets_living_room_mode
+        state: 'on'
+      - condition: template
+        value_template: >-
+          {{ game_key != 'NBA-DEN:' and
+             game_key == ('NBA-DEN:' ~ (trigger.from_state.attributes.get('event_id') or
+                                       trigger.from_state.attributes.get('date') or '')) and
+             game_key != states('input_text.nuggets_last_celebrated_game') and
+             is_number(trigger.to_state.attributes.get('team_score')) and
+             is_number(trigger.to_state.attributes.get('opponent_score')) and
+             trigger.to_state.attributes.team_score | int >
+             trigger.to_state.attributes.opponent_score | int }}
+      - condition: template
+        value_template: >-
+          {{ not is_state('input_boolean.broncos_living_room_active', 'on') and
+             states('light.livingroom_1') in ['on', 'off'] and
+             states('light.livingroom_2') in ['on', 'off'] }}
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.nuggets_last_celebrated_game
+        data:
+          value: "{{ game_key }}"
+      - action: script.nuggets_living_room_celebrate

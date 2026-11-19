@@ -1,0 +1,300 @@
+# Home Assistant package. Install at /config/packages/broncos_living_room.yaml.
+# Requires Team Tracker v0.18.4 (league NFL, team DEN).
+sensor:
+  - platform: teamtracker
+    league_id: NFL
+    team_id: DEN
+    name: Denver Broncos
+
+input_boolean:
+  broncos_living_room_mode:
+    name: Broncos Living Room Mode
+    icon: mdi:football
+  broncos_living_room_active:
+    name: Broncos Living Room Active
+    icon: mdi:lightbulb-group
+
+input_number:
+  broncos_score_delay:
+    name: Broncos Score Delay
+    min: 0
+    max: 180
+    step: 5
+    unit_of_measurement: s
+    mode: box
+    icon: mdi:timer-outline
+
+# No initial values: snapshots and ownership survive a normal HA restart.
+input_text:
+  broncos_original_light_1:
+    name: Broncos Original Light 1
+    max: 255
+  broncos_original_light_2:
+    name: Broncos Original Light 2
+    max: 255
+  broncos_active_game:
+    name: Broncos Active Game
+    max: 255
+
+script:
+  broncos_living_room_preview:
+    alias: Preview Broncos Living Room Lights
+    description: Preview the game colors and a score celebration, then restore both lights.
+    mode: single
+    sequence:
+      - condition: state
+        entity_id: input_boolean.broncos_living_room_active
+        state: 'off'
+      - action: scene.create
+        data:
+          scene_id: broncos_living_room_before_preview
+          snapshot_entities: [light.livingroom_1, light.livingroom_2]
+      - action: script.broncos_living_room_colors
+        continue_on_error: true
+      - delay:
+          seconds: 3
+      - action: script.broncos_living_room_celebrate
+        continue_on_error: true
+        data:
+          cycles: 3
+      - action: scene.turn_on
+        target:
+          entity_id: scene.broncos_living_room_before_preview
+  broncos_living_room_colors:
+    alias: Broncos Living Room Colors
+    mode: single
+    sequence:
+      - action: light.turn_on
+        target:
+          entity_id: light.livingroom_1
+        data:
+          rgb_color: [251, 79, 20]
+          brightness_pct: 65
+      - action: light.turn_on
+        target:
+          entity_id: light.livingroom_2
+        data:
+          rgb_color: [0, 34, 68]
+          brightness_pct: 65
+
+  broncos_living_room_restore:
+    alias: Broncos Restore Living Room
+    mode: single
+    sequence:
+      - condition: state
+        entity_id: input_boolean.broncos_living_room_active
+        state: 'on'
+      - repeat:
+          for_each:
+            - light: light.livingroom_1
+              saved: input_text.broncos_original_light_1
+            - light: light.livingroom_2
+              saved: input_text.broncos_original_light_2
+          sequence:
+            - variables:
+                original: "{{ states(repeat.item.saved) | from_json({}) }}"
+            - choose:
+                - conditions: "{{ original.get('state') == 'off' }}"
+                  sequence:
+                    - action: light.turn_off
+                      target:
+                        entity_id: "{{ repeat.item.light }}"
+                - conditions: "{{ original.get('state') == 'on' }}"
+                  sequence:
+                    - action: light.turn_on
+                      target:
+                        entity_id: "{{ repeat.item.light }}"
+                      data: >-
+                        {% set d = {'brightness': original.get('brightness', 165)} %}
+                        {% if original.get('color_mode') == 'color_temp' and original.get('color_temp_kelvin') %}
+                          {{ dict(d, color_temp_kelvin=original.color_temp_kelvin) }}
+                        {% elif original.get('rgb_color') %}
+                          {{ dict(d, rgb_color=original.rgb_color) }}
+                        {% else %}
+                          {{ d }}
+                        {% endif %}
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.broncos_living_room_active
+
+  broncos_living_room_celebrate:
+    alias: Broncos Living Room Celebration
+    description: Alternating orange and blue; three cycles are 15 seconds.
+    mode: single
+    fields:
+      cycles:
+        description: Number of five-second orange/blue cycles
+        default: 3
+    sequence:
+      - action: script.turn_on
+        continue_on_error: true
+        target:
+          entity_id: script.tv_backlight_team_chase
+        data:
+          variables:
+            team: broncos
+            seconds: "{{ (cycles | default(3) | int) * 5 }}"
+      - repeat:
+          count: "{{ cycles | default(3) | int }}"
+          sequence:
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: [light.livingroom_1, light.livingroom_2]
+              data:
+                rgb_color: [251, 79, 20]
+                brightness_pct: 80
+            - delay:
+                milliseconds: 2500
+            - action: light.turn_on
+              continue_on_error: true
+              target:
+                entity_id: [light.livingroom_1, light.livingroom_2]
+              data:
+                rgb_color: [0, 34, 68]
+                brightness_pct: 80
+            - delay:
+                milliseconds: 2500
+      - action: script.broncos_living_room_colors
+
+automation:
+  - id: broncos_living_room_game_day
+    alias: Broncos Living Room Game Day
+    description: Game colors, scoring celebrations, victory, and previous-state restoration.
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        attribute: team_score
+        id: score
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        to: IN
+        id: game
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        to: POST
+        id: final
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        to: PRE
+        id: cleanup
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        to: BYE
+        id: cleanup
+      - trigger: state
+        entity_id: sensor.denver_broncos
+        to: NOT_FOUND
+        id: cleanup
+      - trigger: state
+        entity_id: [light.livingroom_1, light.livingroom_2]
+        from: unavailable
+        id: lights
+      - trigger: state
+        entity_id: [light.livingroom_1, light.livingroom_2]
+        from: unknown
+        id: lights
+      - trigger: state
+        entity_id: input_boolean.broncos_living_room_mode
+        id: mode
+      - trigger: homeassistant
+        event: start
+        id: startup
+    actions:
+      - choose:
+          # Always clean up owned lighting when disabled or outside a live game.
+          - conditions: >-
+              {{ trigger.id != 'score' and
+                 (is_state('input_boolean.broncos_living_room_mode', 'off') or
+                  states('sensor.denver_broncos') in ['PRE', 'POST', 'BYE', 'NOT_FOUND']) }}
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ trigger.id == 'final' and
+                         is_state('input_boolean.broncos_living_room_mode', 'on') and
+                         is_state('input_boolean.broncos_living_room_active', 'on') and
+                         states('input_text.broncos_active_game') == state_attr('sensor.denver_broncos', 'date') and
+                         is_number(state_attr('sensor.denver_broncos', 'team_score')) and
+                         is_number(state_attr('sensor.denver_broncos', 'opponent_score')) and
+                         state_attr('sensor.denver_broncos', 'team_score') | int >
+                         state_attr('sensor.denver_broncos', 'opponent_score') | int }}
+                then:
+                  - delay:
+                      seconds: "{{ states('input_number.broncos_score_delay') | int(0) }}"
+                  - if: "{{ is_state('input_boolean.broncos_living_room_mode', 'on') }}"
+                    then:
+                      - action: script.broncos_living_room_celebrate
+                        continue_on_error: true
+                        data:
+                          cycles: 6
+              - action: script.broncos_living_room_restore
+
+          - conditions: >-
+              {{ trigger.id == 'score' and
+                 is_state('input_boolean.broncos_living_room_mode', 'on') and
+                 is_state('input_boolean.broncos_living_room_active', 'on') and
+                 trigger.from_state is not none and trigger.to_state is not none and
+                 trigger.from_state.state == 'IN' and trigger.to_state.state in ['IN', 'POST'] and
+                 trigger.from_state.attributes.get('date') == trigger.to_state.attributes.get('date') and
+                 trigger.to_state.attributes.get('date') == states('input_text.broncos_active_game') and
+                 is_number(trigger.from_state.attributes.get('team_score')) and
+                 is_number(trigger.to_state.attributes.get('team_score')) and
+                 trigger.to_state.attributes.team_score | int > trigger.from_state.attributes.team_score | int }}
+            sequence:
+              - delay:
+                  seconds: "{{ states('input_number.broncos_score_delay') | int(0) }}"
+              - condition: template
+                value_template: >-
+                  {{ is_state('input_boolean.broncos_living_room_mode', 'on') and
+                     is_state('input_boolean.broncos_living_room_active', 'on') and
+                     state_attr('sensor.denver_broncos', 'date') == trigger.to_state.attributes.get('date') and
+                     state_attr('sensor.denver_broncos', 'team_score') | int(-1) >=
+                     trigger.to_state.attributes.team_score | int }}
+              - action: script.broncos_living_room_celebrate
+                data:
+                  cycles: 3
+
+          - conditions: >-
+              {{ trigger.id != 'score' and
+                 is_state('input_boolean.broncos_living_room_mode', 'on') and
+                 is_state('sensor.denver_broncos', 'IN') and
+                 states('light.livingroom_1') in ['on', 'off'] and
+                 states('light.livingroom_2') in ['on', 'off'] }}
+            sequence:
+              # If the last game's final update was missed, restore before taking a new snapshot.
+              - if: >-
+                  {{ is_state('input_boolean.broncos_living_room_active', 'on') and
+                     states('input_text.broncos_active_game') != state_attr('sensor.denver_broncos', 'date') }}
+                then:
+                  - action: script.broncos_living_room_restore
+              - if: "{{ is_state('input_boolean.broncos_living_room_active', 'off') }}"
+                then:
+                  - repeat:
+                      for_each:
+                        - light: light.livingroom_1
+                          saved: input_text.broncos_original_light_1
+                        - light: light.livingroom_2
+                          saved: input_text.broncos_original_light_2
+                      sequence:
+                        - action: input_text.set_value
+                          target:
+                            entity_id: "{{ repeat.item.saved }}"
+                          data:
+                            value: >-
+                              {{ {'state': states(repeat.item.light),
+                                  'brightness': state_attr(repeat.item.light, 'brightness'),
+                                  'color_mode': state_attr(repeat.item.light, 'color_mode'),
+                                  'rgb_color': state_attr(repeat.item.light, 'rgb_color'),
+                                  'color_temp_kelvin': state_attr(repeat.item.light, 'color_temp_kelvin')} | to_json }}
+                  - action: input_text.set_value
+                    target:
+                      entity_id: input_text.broncos_active_game
+                    data:
+                      value: "{{ state_attr('sensor.denver_broncos', 'date') }}"
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.broncos_living_room_active
+              - action: script.broncos_living_room_colors
